@@ -1,1 +1,1 @@
-clang -framework Foundation aea.m main.m -o main 
+clang -framework Foundation aea.m main.m -o sign-mismatch-poc 
