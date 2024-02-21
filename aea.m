@@ -10,7 +10,7 @@
 char *archive;
 size_t archive_size;
 
-void load_file_into_memory(const char *restrict filepath) {
+void load_signed_shortcut_into_memory(const char *restrict filepath) {
  FILE *fp = fopen(filepath, "r");
  if (!fp) {
   fprintf(stderr,"shortcuts-sign: failed to open file\n");
@@ -30,9 +30,15 @@ void load_file_into_memory(const char *restrict filepath) {
  fclose(fp);
 }
 
-NSData *auth_data_from_path(char *filepath) {
- /* load .shortcut file into memory */
- load_file_into_memory(filepath);
+int is_unsigned(void) {
+ if (!archive) {
+  fprintf(stderr,"shortcuts-sign: is_aea called before archive loaded\n");
+  exit(1);
+ }
+ return strncmp(archive,"AEA1",4);
+}
+
+NSData *auth_data_from_archive(void) {
  /* find the size of AEA_CONTEXT_FIELD_AUTH_DATA field blob */
  /* We assume it's located at 0x8-0xB */
  register const char *sptr = archive + 0xB;
@@ -63,4 +69,15 @@ NSData *auth_data_from_path(char *filepath) {
  /* make buffer NSData */
  NSData *authData = [NSData dataWithBytesNoCopy:buffer length:buf_size];
  return authData;
+}
+
+NSData *auth_data_from_path(char *filepath) {
+ /* load .shortcut file into memory */
+ load_signed_shortcut_into_memory(filepath);
+ return auth_data_from_archive();
+}
+
+void free_archive(void) {
+ free(archive);
+ archive = 0;
 }
