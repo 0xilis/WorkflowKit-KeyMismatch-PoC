@@ -100,7 +100,80 @@ NSData *auth_data_from_shortcut(const char *restrict filepath) {
  i--;
  buffer[i] = archive[i+0xc];
  if (i != 0) {goto fill_buffer;};
+ free(archive);
  /* make buffer NSData */
  NSData *authData = [NSData dataWithBytesNoCopy:buffer length:buf_size];
  return authData;
+}
+
+void decrypt_archive(AAByteStream byteStream, AEAContext context, const char *signedShortcutPath, const char *destPath) {
+ //AAByteStream byteStream = AAFileStreamOpenWithPath(signedShortcutPath, 0, 420);
+ AAArchiveStream archiveStream = AAExtractArchiveOutputStreamOpen(destPath, nil, nil, 1, 0);
+ if (!archiveStream) {
+  fprintf(stderr,"libshortcutsign: AAExtractArchiveOutputStreamOpen returned nil\n");
+  exit(1);
+ }
+ AAByteStream decryptionInputStream = AEADecryptionInputStreamOpen(byteStream, context, 0, 0);
+ if (!decryptionInputStream) {
+  fprintf(stderr,"libshortcutsign: AEADecryptionInputStreamOpen returned nil\n");
+  exit(1);
+ }
+ AAArchiveStream decodeStream = AADecodeArchiveInputStreamOpen(decryptionInputStream, nil, nil, 0, 0);
+ if (!decodeStream) {
+  fprintf(stderr,"libshortcutsign: AADecodeArchiveInputStreamOpen returned nil\n");
+  exit(1);
+ }
+ /* Extracting Signed Shortcut Data */
+ ssize_t archiveEntries = AAArchiveStreamProcess(decodeStream, archiveStream, nil, nil, 0, 0);
+ /* archiveEntries will return a negative error code if failure */
+ if (archiveEntries >= 0) {
+  if (AAArchiveStreamClose(archiveStream) >= 0) {
+   /* Success */
+  } else {
+   fprintf(stderr,"libshortcutsign: AAArchiveStreamClose failed\n");
+   exit(1);
+  }
+ } else {
+  fprintf(stderr,"libshortcutsign: failed to extract, error: %zu\n", archiveEntries);
+  exit(1);
+ }
+}
+
+void decrypt_signed_shortcut_with_context(AAByteStream byteStream, AEAContext context, NSData *authData, const char *signedShortcutPath, const char *destPath) {
+ NSDictionary *dict = [NSPropertyListSerialization propertyListWithData:authData options:0 format:0 error:nil];
+ if (dict) {
+  if ([dict isKindOfClass:[NSDictionary class]]) {
+   CFDataRef signingPublicKey = (__bridge CFDataRef)dict[@"SigningPublicKey"];
+
+   SecKeyRef publicKey = SecKeyCreateWithData(signingPublicKey,(__bridge CFDictionaryRef)@{
+    (__bridge NSString *)kSecAttrKeyType : (__bridge NSString *)kSecAttrKeyTypeECSECPrimeRandom,
+    (__bridge NSString *)kSecAttrKeyClass : (__bridge NSString *)kSecAttrKeyClassPublic,
+   }, nil);
+   NSData *externalRep = (__bridge NSData*)SecKeyCopyExternalRepresentation(publicKey, nil);
+   if (AEAContextSetFieldBlob(context, AEA_CONTEXT_FIELD_SIGNING_PUBLIC_KEY, AEA_CONTEXT_FIELD_REPRESENTATION_X963, [externalRep bytes], [externalRep length]) == 0) {
+    decrypt_archive(byteStream, context, signedShortcutPath, destPath);
+   } else {
+    fprintf(stderr,"libshortcutsign: failed to set public key\n");
+    exit(1);
+   }
+  }
+ } else {
+  printf("failed to create dict from auth data\n");
+ }
+}
+
+/* Extracts/Decrypts the unsigned shortcut from a contact signed shortcut */
+void extract_contact_signed_shortcut(const char *signedShortcutPath, const char *destPath) {
+ if (!access(destPath, F_OK)) {
+  fprintf(stderr,"libshortcutsign: directory not created specified in destPath\n");
+  exit(1);
+ }
+ AAByteStream byteStream = AAFileStreamOpenWithPath(signedShortcutPath, 0, 420);
+ if (byteStream) {
+  AEAContext context = AEAContextCreateWithEncryptedStream(byteStream);
+  if (context) {
+   NSData *authData = auth_data_from_shortcut(signedShortcutPath);
+   decrypt_signed_shortcut_with_context(byteStream, context, authData, signedShortcutPath, destPath);
+  }
+ }
 }

@@ -16,5 +16,6 @@
 
 void sign_shortcut_with_private_key_and_auth_data(SecKeyRef privKey, NSData *authData, const char *unsignedShortcutPath, const char *destPath);
 NSData *auth_data_from_shortcut(const char *restrict filepath);
+void extract_contact_signed_shortcut(const char *signedShortcutPath, const char *destPath);
 
 #endif /* libshortcutsign_h */
