@@ -33,6 +33,10 @@ int poc(char *inputPath, char *authPath, char *outputPath) {
   printf("poc failed to get auth data\n");
   return -1;
  }
+ int isNotCorrectlySigned = verify_contact_signed_auth_data(authData);
+ if (isNotCorrectlySigned) {
+  printf("Warning: Contact signed shortcut may not be valid (error %d)\n", isNotCorrectlySigned);
+ }
  SecKeyRef privKey = generate_private_key();
  if (!privKey) {
   printf("poc failed to generate signing key\n");
@@ -80,10 +84,6 @@ int main(int argc, char *argv[]) {
  }
  if (accept == 3) {
   /* All args supplied - run poc */
-  int isNotCorrectlySigned = verify_contact_signed_shortcut(authPath);
-  if (isNotCorrectlySigned) {
-   printf("Warning: Contact signed shortcut may not be valid (error %d)\n", isNotCorrectlySigned);
-  }
   int pocerror = poc(inputPath, authPath, outputPath);
   if (pocerror) {
    fprintf(stderr,"poc failed (error %d)\n", pocerror);
