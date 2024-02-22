@@ -1,1 +1,1 @@
-clang -framework Foundation aea.m main.m -o sign-mismatch-poc 
+clang -framework Foundation main.m -lAppleArchive -framework Security libshortcutsign/libshortcutsign.m -o sign-mismatch-poc 
