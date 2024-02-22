@@ -1,6 +1,6 @@
 /*
  * Snoolie K, (c) 2024.
- * Signs a unsigned shortcut with Apple ID context of another contact-signed shortcut.
+ * Signs an unsigned shortcut with Apple ID context of another contact-signed shortcut.
  * This passes validation but crashes.
  * This is due to AEADecryptionInputStreamOpen not being able to open with the bad key.
  * Not a vulnerability, as since you don't have the private key it's not like you
@@ -10,7 +10,6 @@
 
 #import <Foundation/Foundation.h>
 #include <objc/runtime.h>
-#import "aea.h"
 #include <getopt.h>
 #include <dlfcn.h>
 #include <unistd.h>
@@ -30,8 +29,16 @@ SecKeyRef generate_private_key(void) {
 
 int poc(char *inputPath, char *authPath, char *outputPath) {
  NSData *authData = auth_data_from_shortcut(authPath);
- sign_shortcut_with_private_key_and_auth_data(generate_private_key(), authData, inputPath, outputPath);
- return 0;
+ if (!authData) {
+  printf("poc failed to get auth data\n");
+  return -1;
+ }
+ SecKeyRef privKey = generate_private_key();
+ if (!privKey) {
+  printf("poc failed to generate signing key\n");
+  return -1;
+ }
+ return sign_shortcut_with_private_key_and_auth_data(privKey, authData, inputPath, outputPath);
 }
 
 void show_help(void) {
@@ -73,7 +80,15 @@ int main(int argc, char *argv[]) {
  }
  if (accept == 3) {
   /* All args supplied - run poc */
-  poc(inputPath, authPath, outputPath);
+  int isNotCorrectlySigned = verify_contact_signed_shortcut(authPath);
+  if (isNotCorrectlySigned) {
+   printf("Warning: Contact signed shortcut may not be valid (error %d)\n", isNotCorrectlySigned);
+  }
+  int pocerror = poc(inputPath, authPath, outputPath);
+  if (pocerror) {
+   fprintf(stderr,"poc failed (error %d)\n", pocerror);
+   return -1;
+  }
  } else {
   printf("Invalid arguments.\n");
   show_help();
